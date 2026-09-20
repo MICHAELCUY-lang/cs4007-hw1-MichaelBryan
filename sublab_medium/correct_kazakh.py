@@ -49,8 +49,18 @@ def build_prompt(corrupted: str) -> str:
     Asking for a fixed shape instead of prose is how you make six models
     comparable. Week 3 turns this into a topic.
     """
-    # TODO
-    raise NotImplementedError
+    sentence = json.dumps(corrupted, ensure_ascii=False)
+    return f"""Correct the Kazakh sentence below. It may contain incorrect
+Kazakh letters, joined words, doubled letters, missing hyphens, or characters
+from the wrong alphabet such as Latin letters mixed into Cyrillic text.
+
+Return exactly one JSON object and nothing else, using this shape:
+{{"corrected": "...", "changes": ["...", "..."]}}
+
+Put the fully corrected sentence in "corrected". In "changes", briefly list
+each correction you made. Do not add Markdown fences or explanatory prose.
+
+Sentence: {sentence}"""
 
 
 def parse_response(text: str) -> dict:
@@ -60,8 +70,30 @@ def parse_response(text: str) -> dict:
     like. Be forgiving: find the JSON, parse it, and raise ValueError with the
     offending text if you truly cannot.
     """
-    # TODO
-    raise NotImplementedError
+    decoder = json.JSONDecoder()
+
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+
+        try:
+            candidate, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+
+        if not isinstance(candidate, dict):
+            continue
+
+        corrected = candidate.get("corrected")
+        changes = candidate.get("changes")
+        if not isinstance(corrected, str) or not isinstance(changes, list):
+            continue
+        if not all(isinstance(change, str) for change in changes):
+            continue
+
+        return {"corrected": corrected, "changes": changes}
+
+    raise ValueError("No valid correction JSON found in response: " + repr(text))
 
 
 def correct_with(model: str, corrupted: str, via: str) -> dict:
@@ -75,8 +107,16 @@ def correct_with(model: str, corrupted: str, via: str) -> dict:
     `ask_once` from sublab_easy - there is no conversation here, just one
     prompt and one reply, eight times per model.
     """
-    # TODO
-    raise NotImplementedError
+    response = ask_once(build_prompt(corrupted), model=model, via=via)
+    correction = parse_response(response["text"])
+
+    return {
+        "corrected": correction["corrected"],
+        "changes": correction["changes"],
+        "input_tokens": response["input_tokens"],
+        "output_tokens": response["output_tokens"],
+        "model": response["model"],
+    }
 
 
 def score_correction(returned: str, expected: str) -> dict:
@@ -90,8 +130,12 @@ def score_correction(returned: str, expected: str) -> dict:
     the original still counts as a correction. Your written analysis is where
     you make that call.
     """
-    # TODO
-    raise NotImplementedError
+    positional_differences = sum(
+        returned_char != expected_char
+        for returned_char, expected_char in zip(returned, expected)
+    )
+    char_diff = positional_differences + abs(len(returned) - len(expected))
+    return {"exact": returned == expected, "char_diff": char_diff}
 
 
 def run_all() -> list[dict]:
